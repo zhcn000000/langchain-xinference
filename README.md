@@ -33,11 +33,11 @@ llm = ChatXinference(
   server_url="http://0.0.0.0:9997",  # replace your xinference server url
   model_uid={model_uid}  # replace model_uid with the model UID return from launching the model
          )
-prompt = PromptTemplate(input=['country'], template="Q: where can we visit in the capital of {country}? A:")
+prompt = PromptTemplate(input=["country"], template="Q: where can we visit in the capital of {country}? A:")
 chain = prompt | llm
 
-chain.invoke(input={'country': 'France'})
-chain.stream(input={'country': 'France'})  #  streaming data
+chain.invoke(input={"country": "France"})
+chain.stream(input={"country": "France"})  #  streaming data
 ```
 
 ## LLMs
@@ -51,7 +51,7 @@ llm = Xinference(
     server_url="http://0.0.0.0:9997",  # replace your xinference server url
     model_uid={model_uid}  # replace model_uid with the model UID return from launching the model
  )
-prompt = PromptTemplate(input=['country'], template="Q: where can we visit in the capital of {country}? A:")
+prompt = PromptTemplate(input=["country"], template="Q: where can we visit in the capital of {country}? A:")
 chain = prompt | llm
-chain.invoke(input={'country': 'France'})
+chain.invoke(input={"country": "France"})
 ```
