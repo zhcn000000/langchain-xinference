@@ -1,3 +1,16 @@
+[project]
+authors = []
+license = { text = "MIT" }
+requires-python = "<4.0,>=3.9"
+dependencies = []
+name = "langchain-xinference"
+version = "0.0.1"
+description = "langchain xinference chain"
+readme = "README.md"
+
+[project.urls]
+repository = "https://github.com/TheSongg/langchain-xinference"
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
