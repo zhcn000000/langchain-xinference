@@ -37,7 +37,10 @@ prompt = PromptTemplate(input=["country"], template="Q: where can we visit in th
 chain = prompt | llm
 
 chain.invoke(input={"country": "France"})
-chain.stream(input={"country": "France"})  #  streaming data
+
+ai_res = chain.stream(input={"country": "France"})
+for chunk in ai_res:
+    print(chunk.content)
 ```
 
 ## LLMs
@@ -54,4 +57,8 @@ llm = Xinference(
 prompt = PromptTemplate(input=["country"], template="Q: where can we visit in the capital of {country}? A:")
 chain = prompt | llm
 chain.invoke(input={"country": "France"})
+
+ai_res = chain.stream(input={"country": "France"})
+for chunk in ai_res:
+    print(chunk)
 ```
