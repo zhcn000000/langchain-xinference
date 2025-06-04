@@ -64,7 +64,7 @@ class XinferenceEmbeddings(Embeddings):
 
     .. code-block:: python
 
-        from langchain_community.embeddings import XinferenceEmbeddings
+        from langchain_xinference.embeddings import XinferenceEmbeddings
 
         xinference = XinferenceEmbeddings(
             server_url="http://0.0.0.0:9997",
@@ -79,9 +79,7 @@ class XinferenceEmbeddings(Embeddings):
     model_uid: Optional[str]
     """UID of the launched model"""
 
-    def __init__(
-        self, server_url: Optional[str] = None, model_uid: Optional[str] = None
-    ):
+    def __init__(self, server_url: Optional[str] = None, model_uid: Optional[str] = None):
         try:
             from xinference.client import RESTfulClient
         except ImportError:
@@ -117,9 +115,7 @@ class XinferenceEmbeddings(Embeddings):
 
         model = self.client.get_model(self.model_uid)
 
-        embeddings = [
-            model.create_embedding(text)["data"][0]["embedding"] for text in texts
-        ]
+        embeddings = [model.create_embedding(text)["data"][0]["embedding"] for text in texts]
         return [list(map(float, e)) for e in embeddings]
 
     def embed_query(self, text: str) -> List[float]:
@@ -137,4 +133,3 @@ class XinferenceEmbeddings(Embeddings):
         embedding = embedding_res["data"][0]["embedding"]
 
         return list(map(float, embedding))
-

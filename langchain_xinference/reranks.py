@@ -58,7 +58,7 @@ class XinferenceRerank(BaseDocumentCompressor):
             return []
         docs = [doc.page_content if isinstance(doc, Document) else doc for doc in documents]
         model = self.client.get_model(self.model_uid)
-        top_n = top_n if (top_n is None or top_n > 0) else self.top_n
+        top_n = top_n if (top_n is not None and top_n > 0) else self.top_n
         results = model.rerank(
             documents=docs,
             query=query,
