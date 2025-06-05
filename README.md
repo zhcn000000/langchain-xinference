@@ -8,19 +8,6 @@ This package contains the LangChain integration with Xinference
 pip install -U langchain-xinference
 ```
 
-## Dependence
-Install Xinference by using pip as follows. (For more options, see [Installation page](https://inference.readthedocs.io/en/latest/getting_started/installation.html).)
-
-```bash
-pip install "xinference[all]"
-```
-
-To start a local instance of Xinference, run the following command:
-
-```bash
-$ xinference-local
-```
-
 ## Chat Models
 
 `ChatXinference` class exposes chat models from Xinference.
