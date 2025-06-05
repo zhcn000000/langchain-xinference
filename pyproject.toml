@@ -1,5 +1,5 @@
 [project]
-name = "langchain-xinference"
+name = "langchain_xinference"
 version = "0.1.1"
 description = "An integration package connecting Xinference and LangChain"
 authors = []
