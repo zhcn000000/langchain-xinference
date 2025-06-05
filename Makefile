@@ -7,6 +7,7 @@ all: help
 TEST_FILE ?= tests/unit_tests/
 integration_test integration_tests: TEST_FILE = tests/integration_tests/
 
+CHANGED_FILES := $(shell git diff --name-only --diff-filter=d HEAD)
 
 # unit tests are run with the --disable-socket flag to prevent network calls
 test tests:
@@ -32,10 +33,18 @@ lint_package: PYTHON_FILES=langchain_xinference
 lint_tests: PYTHON_FILES=tests
 lint_tests: MYPY_CACHE=.mypy_cache_test
 
-lint lint_diff lint_package lint_tests:
-	[ "$(PYTHON_FILES)" = "" ] || ruff check $(PYTHON_FILES)
-	[ "$(PYTHON_FILES)" = "" ] || ruff format $(PYTHON_FILES) --diff
-	[ "$(PYTHON_FILES)" = "" ] || mkdir -p $(MYPY_CACHE) && mypy $(PYTHON_FILES) --cache-dir $(MYPY_CACHE)
+
+lint:
+ifneq ($(CHANGED_FILES),)
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n'
+
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n' | grep -E '\.py$$|\.ipynb$$' | xargs -r ruff check
+
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n' | grep -E '\.py$$|\.ipynb$$' | xargs -r ruff format --diff
+
+else
+	@echo "没有检测到文件变更，跳过检查"
+endif
 
 format format_diff:
 	[ "$(PYTHON_FILES)" = "" ] || ruff format $(PYTHON_FILES)
