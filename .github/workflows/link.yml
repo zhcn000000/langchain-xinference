@@ -14,7 +14,7 @@ env:
   WORKDIR: "."
   RUFF_OUTPUT_FORMAT: github
   UV_FROZEN: "true"
-  UV_VERSION: "0.5.25"
+  UV_VERSION: "0.6.0"
 
 jobs:
   build:
