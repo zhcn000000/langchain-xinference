@@ -11,7 +11,7 @@ on:
       - dev
 
 env:
-  WORKDIR: ./langchain-xinference
+  WORKDIR: "."
   RUFF_OUTPUT_FORMAT: github
   UV_FROZEN: "true"
   UV_VERSION: "0.5.25"
@@ -33,11 +33,10 @@ jobs:
           python-version: "3.10.8"
 
       - name: Install dependencies
-        run: cd $WORKDIR && uv sync --group lint --group typing
+        run: uv sync --group lint --group typing
 
       - name: Run Lint on package
         run: |
-          cd $WORKDIR
           if make lint_package; then
             echo "Lint passed ✅"
           else
@@ -46,11 +45,10 @@ jobs:
           fi
 
       - name: Install unit test dependencies
-        run: cd $WORKDIR && uv sync --inexact --group test
+        run: uv sync --inexact --group test
 
       - name: Run Lint on tests
         run: |
-          cd $WORKDIR
           if make lint_tests; then
             echo "Test lint passed ✅"
           else
