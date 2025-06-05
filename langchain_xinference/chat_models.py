@@ -329,15 +329,7 @@ class ChatXinference(BaseChatModel):
             else:
                 raise ValueError("Received unsupported message type.")
 
-            content = ""
-            if isinstance(message.content, str):
-                content = message.content
-            else:
-                for content_part in cast(List[Dict], message.content):
-                    if content_part.get("type") == "text":
-                        content += f"\n{content_part['text']}"
-                    else:
-                        raise ValueError("Unsupported message content type. ")
+            content = message.content
 
             messages_list.append(
                 {
