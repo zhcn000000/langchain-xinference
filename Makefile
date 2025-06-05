@@ -7,7 +7,8 @@ all: help
 TEST_FILE ?= tests/unit_tests/
 integration_test integration_tests: TEST_FILE = tests/integration_tests/
 
-CHANGED_FILES := $(shell git diff --name-only --diff-filter=d HEAD)
+PARENT_COMMIT := $(shell git rev-parse --verify HEAD^ 2>/dev/null || echo "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+CHANGED_FILES := $(shell git diff --name-only $(PARENT_COMMIT)..$(GITHUB_SHA))
 
 # unit tests are run with the --disable-socket flag to prevent network calls
 test tests:
