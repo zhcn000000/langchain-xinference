@@ -7,6 +7,9 @@ from langchain_tests.unit_tests import ChatModelUnitTests
 
 
 class TestChatXinferenceUnit(ChatModelUnitTests):
+    """
+    test
+    """
     @property
     def chat_model_class(self) -> Type[ChatXinference]:
         return ChatXinference
