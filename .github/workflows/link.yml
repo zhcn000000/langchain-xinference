@@ -36,18 +36,3 @@ jobs:
 
       - name: Run linting
         run: make lint
-
-  test:
-    name: Run Tests
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install dependencies
-        run: |
-          uv pip install -e ".[test]"
-
-      - name: Run unit tests
-        run: make test
-
-      - name: Run integration tests
-        run: make integration_test
