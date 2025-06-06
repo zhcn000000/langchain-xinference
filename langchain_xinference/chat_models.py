@@ -79,7 +79,7 @@ class ChatXinference(BaseChatModel):
 
     .. code-block:: python
 
-        from langchain_community.chat_models.xinference import ChatXinference
+        from langchain_xinference import ChatXinference
 
         llm = ChatXinference(
             server_url="http://0.0.0.0:9997",
@@ -95,7 +95,7 @@ class ChatXinference(BaseChatModel):
 
     .. code-block:: python
 
-        from langchain_community.chat_models.xinference import ChatXinference
+        from langchain_xinference import ChatXinference
         from langchain.prompts import PromptTemplate
 
         llm = ChatXinference(
@@ -148,13 +148,11 @@ class ChatXinference(BaseChatModel):
 
         model_kwargs = model_kwargs or {}
 
-        super().__init__(
-            **{  # type: ignore[arg-type]
-                "server_url": server_url,
-                "model_uid": model_uid,
-                "model_kwargs": model_kwargs,
-            }
-        )
+        super().__init__(**{  # type: ignore[arg-type]
+            "server_url": server_url,
+            "model_uid": model_uid,
+            "model_kwargs": model_kwargs,
+        })
 
         if self.server_url is None:
             raise ValueError("Please provide server URL")
@@ -191,10 +189,7 @@ class ChatXinference(BaseChatModel):
             self._cluster_authed = False
         else:
             if response.status_code != 200:
-                raise RuntimeError(
-                    f"Failed to get cluster information, "
-                    f"detail: {response.json()['detail']}"
-                )
+                raise RuntimeError(f"Failed to get cluster information, detail: {response.json()['detail']}")
             response_data = response.json()
 
             self._cluster_authed = bool(response_data["auth"])
@@ -242,13 +237,13 @@ class ChatXinference(BaseChatModel):
             messages=self._create_message_dicts(messages),
             generate_config=generate_config,
         )
+        if isinstance(response, dict):
+            response = [response]
 
         final_chunk: Optional[ChatGenerationChunk] = None
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(
-                    stream_resp["choices"][0]
-                )
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -268,15 +263,22 @@ class ChatXinference(BaseChatModel):
     def _chat_response_to_chat_generation_chunk(
         stream_response: Dict[str, Any],
     ) -> ChatGenerationChunk:
-        generation_info = (
-            stream_response if stream_response.get("finish_reason") == "stop" else None
-        )
-        return ChatGenerationChunk(
-            message=AIMessageChunk(
-                content=stream_response.get("delta", {}).get("content", "")
-            ),
-            generation_info=generation_info,
-        )
+        generation_info = stream_response if stream_response.get("finish_reason") == "stop" else None
+        if "message" in stream_response:
+            chat_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=stream_response.get("message").get("content", ""),
+                ),
+                generation_info=generation_info,
+            )
+        elif "delta" in stream_response:
+            chat_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=stream_response.get("delta").get("content", ""),
+                ),
+                generation_info=generation_info,
+            )
+        return chat_chunk
 
     def _stream(
         self,
@@ -303,9 +305,7 @@ class ChatXinference(BaseChatModel):
 
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(
-                    stream_resp["choices"][0]
-                )
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if run_manager:
                     run_manager.on_llm_new_token(
                         chunk.text,
@@ -331,10 +331,8 @@ class ChatXinference(BaseChatModel):
 
             content = message.content
 
-            messages_list.append(
-                {
-                    "role": role,
-                    "content": content,
-                }
-            )
+            messages_list.append({
+                "role": role,
+                "content": content,
+            })
         return messages_list

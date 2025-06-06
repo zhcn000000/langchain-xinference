@@ -64,7 +64,7 @@ class XinferenceEmbeddings(Embeddings):
 
     .. code-block:: python
 
-        from langchain_xinference.embeddings import XinferenceEmbeddings
+        from langchain_xinference import XinferenceEmbeddings
 
         xinference = XinferenceEmbeddings(
             server_url="http://0.0.0.0:9997",
