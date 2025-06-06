@@ -278,6 +278,8 @@ class ChatXinference(BaseChatModel):
                 ),
                 generation_info=generation_info,
             )
+        else:
+            raise ValueError("Received unsupported response format from xinference.")
         return chat_chunk
 
     def _stream(
