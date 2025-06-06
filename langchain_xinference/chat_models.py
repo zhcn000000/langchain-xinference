@@ -229,13 +229,13 @@ class ChatXinference(BaseChatModel):
             verbose=self.verbose,
             generate_config=generate_config,
         )
-        content = final_chunk.message.content
-        additional_kwargs = final_chunk.message.additional_kwargs
-        if final_chunk.message.tool_call_chunks is not None:
-            tool_calls = final_chunk.message.tool_calls
-            result = AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
-        else:
-            result = AIMessage(content=content, additional_kwargs=additional_kwargs)
+
+        result = AIMessage(
+            content=final_chunk.message.content,
+            additional_kwargs=final_chunk.message.additional_kwargs,
+            tool_calls=final_chunk.message.tool_calls,
+        )
+
         chat_generation = ChatGeneration(
             message=result,
             generation_info=final_chunk.generation_info,
