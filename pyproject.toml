@@ -33,8 +33,10 @@ lint = [
 dev = ["ipython"]
 
 [tool.ruff]
-select = ["E", "F", "I", "T201"]
 line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "T201"]
 
 [tool.mypy]
 disallow_untyped_defs = true
