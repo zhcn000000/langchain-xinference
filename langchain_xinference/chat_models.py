@@ -6,7 +6,6 @@ from typing import (
     List,
     Optional,
     Union,
-    cast,
 )
 
 import requests
