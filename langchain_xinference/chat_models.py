@@ -147,11 +147,13 @@ class ChatXinference(BaseChatModel):
 
         model_kwargs = model_kwargs or {}
 
-        super().__init__(**{  # type: ignore[arg-type]
-            "server_url": server_url,
-            "model_uid": model_uid,
-            "model_kwargs": model_kwargs,
-        })
+        super().__init__(
+            **{  # type: ignore[arg-type]
+                "server_url": server_url,
+                "model_uid": model_uid,
+                "model_kwargs": model_kwargs,
+            }
+        )
 
         if self.server_url is None:
             raise ValueError("Please provide server URL")
@@ -332,8 +334,10 @@ class ChatXinference(BaseChatModel):
 
             content = message.content
 
-            messages_list.append({
-                "role": role,
-                "content": content,
-            })
+            messages_list.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
         return messages_list
