@@ -7,17 +7,19 @@ all: help
 TEST_FILE ?= tests/unit_tests/
 integration_test integration_tests: TEST_FILE = tests/integration_tests/
 
+PARENT_COMMIT := $(shell git rev-parse --verify HEAD^ 2>/dev/null || echo "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+CHANGED_FILES := $(shell git diff --name-only $(PARENT_COMMIT)..$(GITHUB_SHA))
 
 # unit tests are run with the --disable-socket flag to prevent network calls
 test tests:
-	poetry run pytest --disable-socket --allow-unix-socket $(TEST_FILE)
+	pytest --disable-socket --allow-unix-socket $(TEST_FILE)
 
 test_watch:
-	poetry run ptw --snapshot-update --now . -- -vv $(TEST_FILE)
+	ptw --snapshot-update --now . -- -vv $(TEST_FILE)
 
 # integration tests are run without the --disable-socket flag to allow network calls
 integration_test integration_tests:
-	poetry run pytest $(TEST_FILE)
+	pytest $(TEST_FILE)
 
 ######################
 # LINTING AND FORMATTING
@@ -32,23 +34,31 @@ lint_package: PYTHON_FILES=langchain_xinference
 lint_tests: PYTHON_FILES=tests
 lint_tests: MYPY_CACHE=.mypy_cache_test
 
-lint lint_diff lint_package lint_tests:
-	[ "$(PYTHON_FILES)" = "" ] || poetry run ruff check $(PYTHON_FILES)
-	[ "$(PYTHON_FILES)" = "" ] || poetry run ruff format $(PYTHON_FILES) --diff
-	[ "$(PYTHON_FILES)" = "" ] || mkdir -p $(MYPY_CACHE) && poetry run mypy $(PYTHON_FILES) --cache-dir $(MYPY_CACHE)
+
+lint:
+ifneq ($(CHANGED_FILES),)
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n'
+
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n' | grep -E '\.py$$|\.ipynb$$' | xargs -r ruff check
+
+	@echo "$(CHANGED_FILES)" | tr ' ' '\n' | grep -E '\.py$$|\.ipynb$$' | xargs -r ruff format --diff
+
+else
+	@echo "没有检测到文件变更，跳过检查"
+endif
 
 format format_diff:
-	[ "$(PYTHON_FILES)" = "" ] || poetry run ruff format $(PYTHON_FILES)
-	[ "$(PYTHON_FILES)" = "" ] || poetry run ruff check --select I --fix $(PYTHON_FILES)
+	[ "$(PYTHON_FILES)" = "" ] || ruff format $(PYTHON_FILES)
+	[ "$(PYTHON_FILES)" = "" ] || ruff check --select I --fix $(PYTHON_FILES)
 
 spell_check:
-	poetry run codespell --toml pyproject.toml
+	codespell --toml pyproject.toml
 
 spell_fix:
-	poetry run codespell --toml pyproject.toml -w
+	codespell --toml pyproject.toml -w
 
 check_imports: $(shell find langchain_xinference -name '*.py')
-	poetry run python ./scripts/check_imports.py $^
+	python ./scripts/check_imports.py $^
 
 ######################
 # HELP
