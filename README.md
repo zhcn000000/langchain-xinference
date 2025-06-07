@@ -1,14 +1,22 @@
-# langchain-xinference
+# 💻 langchain-xinference
 
 This package contains the LangChain integration with Xinference
 
-## Installation
+## 🤝 Support
+
+- [x] Chat
+- [x] Generate
+- [x] Embeddings
+- [x] Reranks
+- [x] Tools Call
+
+## 🚀 Installation
 
 ```bash
 pip install -U langchain-xinference
 ```
 
-## Chat Models
+## ☕ Chat Models
 
 `ChatXinference` class exposes chat models from Xinference.
 
@@ -30,7 +38,7 @@ for chunk in ai_res:
     print(chunk.content)
 ```
 
-## LLMs
+## ☕ Generate
 `Xinference` class exposes LLMs from Xinference.
 
 ```python
