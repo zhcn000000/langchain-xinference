@@ -1,8 +1,8 @@
 from importlib import metadata
 
 from langchain_xinference.chat_models import ChatXinference
-from langchain_xinference.llms import Xinference
 from langchain_xinference.embeddings import XinferenceEmbeddings
+from langchain_xinference.llms import Xinference
 from langchain_xinference.reranks import XinferenceRerank
 
 try:

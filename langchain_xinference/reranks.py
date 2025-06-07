@@ -1,5 +1,6 @@
 # python
 from typing import Any, Dict, List, Optional, Sequence, Union
+
 from langchain_core.documents import BaseDocumentCompressor, Document
 from pydantic import ConfigDict, model_validator
 

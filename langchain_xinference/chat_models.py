@@ -1,16 +1,19 @@
+from copy import copy
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
     Optional,
+    Sequence,
     Union,
-    cast,
 )
 
 import requests
 from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
@@ -18,8 +21,12 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 if TYPE_CHECKING:
     from xinference.client import RESTfulChatModelHandle
@@ -79,7 +86,7 @@ class ChatXinference(BaseChatModel):
 
     .. code-block:: python
 
-        from langchain_community.chat_models.xinference import ChatXinference
+        from langchain_xinference import ChatXinference
 
         llm = ChatXinference(
             server_url="http://0.0.0.0:9997",
@@ -95,7 +102,7 @@ class ChatXinference(BaseChatModel):
 
     .. code-block:: python
 
-        from langchain_community.chat_models.xinference import ChatXinference
+        from langchain_xinference import ChatXinference
         from langchain.prompts import PromptTemplate
 
         llm = ChatXinference(
@@ -127,6 +134,8 @@ class ChatXinference(BaseChatModel):
     """UID of the launched model"""
     model_kwargs: Dict[str, Any]
     """Keyword arguments to be passed to xinference.LLM"""
+    tools: Optional[Dict[str, Any]] = None
+    tool_choice: Optional[List[str] | str] = None
 
     def __init__(
         self,
@@ -191,10 +200,7 @@ class ChatXinference(BaseChatModel):
             self._cluster_authed = False
         else:
             if response.status_code != 200:
-                raise RuntimeError(
-                    f"Failed to get cluster information, "
-                    f"detail: {response.json()['detail']}"
-                )
+                raise RuntimeError(f"Failed to get cluster information, detail: {response.json()['detail']}")
             response_data = response.json()
 
             self._cluster_authed = bool(response_data["auth"])
@@ -223,8 +229,15 @@ class ChatXinference(BaseChatModel):
             verbose=self.verbose,
             generate_config=generate_config,
         )
+
+        result = AIMessage(
+            content=final_chunk.message.content,
+            additional_kwargs=final_chunk.message.additional_kwargs,
+            tool_calls=final_chunk.message.tool_calls,
+        )
+
         chat_generation = ChatGeneration(
-            message=AIMessage(content=final_chunk.text),
+            message=result,
             generation_info=final_chunk.generation_info,
         )
 
@@ -238,17 +251,19 @@ class ChatXinference(BaseChatModel):
         verbose: bool = False,
         generate_config: Optional["LlamaCppGenerateConfig"] = None,
     ) -> ChatGenerationChunk:
+        tools = self._choice_tools(tool_choice=self.tool_choice)
         response = model.chat(
             messages=self._create_message_dicts(messages),
+            tools=tools,
             generate_config=generate_config,
         )
+        if isinstance(response, dict):
+            response = [response]
 
         final_chunk: Optional[ChatGenerationChunk] = None
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(
-                    stream_resp["choices"][0]
-                )
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -264,19 +279,32 @@ class ChatXinference(BaseChatModel):
 
         return final_chunk
 
-    @staticmethod
     def _chat_response_to_chat_generation_chunk(
+        self,
         stream_response: Dict[str, Any],
     ) -> ChatGenerationChunk:
-        generation_info = (
-            stream_response if stream_response.get("finish_reason") == "stop" else None
-        )
-        return ChatGenerationChunk(
-            message=AIMessageChunk(
-                content=stream_response.get("delta", {}).get("content", "")
-            ),
-            generation_info=generation_info,
-        )
+        generation_info = stream_response if stream_response.get("finish_reason") in ["stop", "tool_calls"] else None
+
+        if "message" in stream_response:
+            message = stream_response["message"]
+        elif "delta" in stream_response:
+            message = stream_response["delta"]
+        else:
+            raise ValueError("Received unsupported response format from xinference.")
+        if message["content"] is None:
+            message["content"] = ""
+
+        if stream_response.get("finish_reason") == "tool_calls":
+            tool_calls = message["tool_calls"]
+            built_tool_calls = self._build_tool_calls(tool_calls)
+            chat_chunk = AIMessageChunk(
+                content=message["content"],
+                additional_kwargs={"tool_calls": tool_calls},
+                tool_call_chunks=built_tool_calls,
+            )
+        else:
+            chat_chunk = AIMessageChunk(content=message["content"])
+        return ChatGenerationChunk(message=chat_chunk, generation_info=generation_info)
 
     def _stream(
         self,
@@ -296,16 +324,17 @@ class ChatXinference(BaseChatModel):
         generate_config = {**self.model_kwargs, **generate_config}
         if stop:
             generate_config["stop"] = stop
+
+        tools = self._choice_tools(tool_choice=self.tool_choice)
         response = model.chat(
             messages=self._create_message_dicts(messages),
+            tools=tools,
             generate_config=generate_config,
         )
 
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(
-                    stream_resp["choices"][0]
-                )
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if run_manager:
                     run_manager.on_llm_new_token(
                         chunk.text,
@@ -320,29 +349,76 @@ class ChatXinference(BaseChatModel):
         messages_list: List = []
         for message in messages:
             role = ""
+            additional_kwargs = dict()
             if isinstance(message, HumanMessage):
                 role = "user"
             elif isinstance(message, AIMessage):
                 role = "assistant"
+                if "tool_calls" in message.additional_kwargs:
+                    additional_kwargs["tool_calls"] = message.additional_kwargs["tool_calls"]
             elif isinstance(message, SystemMessage):
                 role = "system"
+            elif isinstance(message, ToolMessage):
+                role = "tool"
+                additional_kwargs["tool_call"] = message.tool_call_id
+                additional_kwargs["name"] = message.name
             else:
                 raise ValueError("Received unsupported message type.")
 
-            content = ""
-            if isinstance(message.content, str):
-                content = message.content
-            else:
-                for content_part in cast(List[Dict], message.content):
-                    if content_part.get("type") == "text":
-                        content += f"\n{content_part['text']}"
-                    else:
-                        raise ValueError("Unsupported message content type. ")
-
-            messages_list.append(
-                {
-                    "role": role,
-                    "content": content,
-                }
+            content = message.content
+            message_dict = dict(
+                role=role,
+                content=content,
+                **additional_kwargs,
             )
+            messages_list.append(message_dict)
         return messages_list
+
+    def _choice_tools(self, tool_choice: Optional[Union[str]] = None):
+        """Select tools based on the tool_choice."""
+        if tool_choice is None:
+            return self.tools
+        if isinstance(tool_choice, str):
+            if tool_choice == "any":
+                return self.tools
+            if tool_choice == "none":
+                return None
+        elif isinstance(tool_choice, list):
+            if len(tool_choice) == 0:
+                return None
+            else:
+                return [tool for tool in self.tools if tool.name in tool_choice]
+        elif tool_choice == Any:
+            return self.tools
+        else:
+            raise ValueError("tool_choice must be None, a string or a list of strings.")
+
+    def _build_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        built_tool_calls = []
+        for tool_call in tool_calls:
+            tc = dict()
+            tc["id"] = tool_call["id"]
+            tc["name"] = tool_call["function"]["name"]
+            tc["args"] = tool_call["function"]["arguments"]
+            built_tool_calls.append(tc)
+        return built_tool_calls
+
+    def _set_tools(self, tools, tool_choice):
+        self.tools = tools
+        self.tool_choice = tool_choice
+
+    def bind_tools(
+        self,
+        tools: Sequence[
+            Union[Dict[str, Any], type, Callable, BaseTool]  # noqa: UP006
+        ],
+        *,
+        tool_choice: Optional[Union[str]] = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, BaseMessage]:
+        formatted_tools = []
+        for tool in tools:
+            formatted_tools.append(convert_to_openai_tool(tool))
+        model = copy(self)
+        model._set_tools(tool_choice=tool_choice, tools=formatted_tools)
+        return model
