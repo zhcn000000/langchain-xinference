@@ -1,4 +1,4 @@
-from copy import copy
+from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -19,9 +19,7 @@ from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
     BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
+    convert_to_openai_messages,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
@@ -134,7 +132,7 @@ class ChatXinference(BaseChatModel):
     """UID of the launched model"""
     model_kwargs: Dict[str, Any]
     """Keyword arguments to be passed to xinference.LLM"""
-    tools: Optional[Dict[str, Any]] = None
+    tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[List[str] | str] = None
 
     def __init__(
@@ -253,7 +251,7 @@ class ChatXinference(BaseChatModel):
     ) -> ChatGenerationChunk:
         tools = self._choice_tools(tool_choice=self.tool_choice)
         response = model.chat(
-            messages=self._create_message_dicts(messages),
+            messages=convert_to_openai_messages(messages),
             tools=tools,
             generate_config=generate_config,
         )
@@ -283,7 +281,10 @@ class ChatXinference(BaseChatModel):
         self,
         stream_response: Dict[str, Any],
     ) -> ChatGenerationChunk:
-        generation_info = stream_response if stream_response.get("finish_reason") in ["stop", "tool_calls"] else None
+        if stream_response.get("finish_reason") in ["stop", "tool_calls", "length"]:
+            generation_info = stream_response
+        else:
+            generation_info = None
 
         if "message" in stream_response:
             message = stream_response["message"]
@@ -293,17 +294,23 @@ class ChatXinference(BaseChatModel):
             raise ValueError("Received unsupported response format from xinference.")
         if message["content"] is None:
             message["content"] = ""
-
+        additional_kwargs = {}
+        if "reasoning_content" in message:
+            additional_kwargs["reasoning_content"] = message["reasoning_content"]
         if stream_response.get("finish_reason") == "tool_calls":
             tool_calls = message["tool_calls"]
             built_tool_calls = self._build_tool_calls(tool_calls)
+            additional_kwargs["tool_calls"] = tool_calls
             chat_chunk = AIMessageChunk(
                 content=message["content"],
-                additional_kwargs={"tool_calls": tool_calls},
+                additional_kwargs=additional_kwargs,
                 tool_call_chunks=built_tool_calls,
             )
         else:
-            chat_chunk = AIMessageChunk(content=message["content"])
+            chat_chunk = AIMessageChunk(
+                content=message["content"],
+                additional_kwargs=additional_kwargs,
+            )
         return ChatGenerationChunk(message=chat_chunk, generation_info=generation_info)
 
     def _stream(
@@ -327,7 +334,7 @@ class ChatXinference(BaseChatModel):
 
         tools = self._choice_tools(tool_choice=self.tool_choice)
         response = model.chat(
-            messages=self._create_message_dicts(messages),
+            messages=convert_to_openai_messages(messages),
             tools=tools,
             generate_config=generate_config,
         )
@@ -341,38 +348,6 @@ class ChatXinference(BaseChatModel):
                         verbose=self.verbose,
                     )
                 yield chunk
-
-    @staticmethod
-    def _create_message_dicts(
-        messages: List[BaseMessage],
-    ) -> List[Dict[str, Union[str, List[str]]]]:
-        messages_list: List = []
-        for message in messages:
-            role = ""
-            additional_kwargs = dict()
-            if isinstance(message, HumanMessage):
-                role = "user"
-            elif isinstance(message, AIMessage):
-                role = "assistant"
-                if "tool_calls" in message.additional_kwargs:
-                    additional_kwargs["tool_calls"] = message.additional_kwargs["tool_calls"]
-            elif isinstance(message, SystemMessage):
-                role = "system"
-            elif isinstance(message, ToolMessage):
-                role = "tool"
-                additional_kwargs["tool_call"] = message.tool_call_id
-                additional_kwargs["name"] = message.name
-            else:
-                raise ValueError("Received unsupported message type.")
-
-            content = message.content
-            message_dict = dict(
-                role=role,
-                content=content,
-                **additional_kwargs,
-            )
-            messages_list.append(message_dict)
-        return messages_list
 
     def _choice_tools(self, tool_choice: Optional[Union[str]] = None):
         """Select tools based on the tool_choice."""
@@ -404,7 +379,10 @@ class ChatXinference(BaseChatModel):
         return built_tool_calls
 
     def _set_tools(self, tools, tool_choice):
-        self.tools = tools
+        if self.tools is None:
+            self.tools = tools
+        else:
+            self.tools += tools
         self.tool_choice = tool_choice
 
     def bind_tools(
@@ -419,6 +397,6 @@ class ChatXinference(BaseChatModel):
         formatted_tools = []
         for tool in tools:
             formatted_tools.append(convert_to_openai_tool(tool))
-        model = copy(self)
+        model = deepcopy(self)
         model._set_tools(tool_choice=tool_choice, tools=formatted_tools)
         return model
