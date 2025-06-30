@@ -507,10 +507,7 @@ class ChatXinference(BaseChatModel):
         return built_tool_calls
 
     def _set_tools(self, tools, tool_choice):
-        if self.tools is None:
-            self.tools = tools
-        else:
-            self.tools += tools
+        self.tools = tools
         self.tool_choice = tool_choice
 
     def bind_tools(
