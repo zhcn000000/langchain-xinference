@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterator,
     Callable,
     Dict,
     Iterator,
@@ -27,7 +28,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 if TYPE_CHECKING:
-    from xinference.client import RESTfulChatModelHandle
+    from xinference.client.handlers import AsyncChatModelHandle, ChatModelHandle
     from xinference.model.llm.core import LlamaCppGenerateConfig
 
 
@@ -88,7 +89,7 @@ class ChatXinference(BaseChatModel):
 
         llm = ChatXinference(
             server_url="http://0.0.0.0:9997",
-            model_uid = {model_uid} # replace model_uid with the model UID return from launching the model
+            model_uid={model_uid},  # replace model_uid with the model UID return from launching the model
         )
 
         llm.invoke(
@@ -105,16 +106,13 @@ class ChatXinference(BaseChatModel):
 
         llm = ChatXinference(
             server_url="http://0.0.0.0:9997",
-            model_uid={model_uid}, # replace model_uid with the model UID return from launching the model
+            model_uid={model_uid},  # replace model_uid with the model UID return from launching the model
         )
-        prompt = PromptTemplate(
-            input=['country'],
-            template="Q: where can we visit in the capital of {country}? A:"
-        )
+        prompt = PromptTemplate(input=["country"], template="Q: where can we visit in the capital of {country}? A:")
         chain = prompt | llm
-        chain.invoke(input={'country': 'France'})
+        chain.invoke(input={"country": "France"})
 
-        chain.stream(input={'country': 'France'})  #  streaming data
+        chain.stream(input={"country": "France"})  #  streaming data
 
 
     To view all the supported builtin models, run:
@@ -126,6 +124,7 @@ class ChatXinference(BaseChatModel):
     """  # noqa: E501
 
     client: Optional[Any] = None
+    async_client: Optional[Any] = None
     server_url: Optional[str]
     """URL of the xinference server"""
     model_uid: Optional[str]
@@ -143,10 +142,10 @@ class ChatXinference(BaseChatModel):
         **model_kwargs: Any,
     ):
         try:
-            from xinference.client import RESTfulClient
+            from xinference.client import AsyncRESTfulClient, RESTfulClient
         except ImportError:
             try:
-                from xinference_client import RESTfulClient
+                from xinference_client import AsyncRESTfulClient, RESTfulClient
             except ImportError as e:
                 raise ImportError(
                     "Could not import RESTfulClient from xinference. Please install it"
@@ -175,7 +174,11 @@ class ChatXinference(BaseChatModel):
         if api_key is not None and self._cluster_authed:
             self._headers["Authorization"] = f"Bearer {api_key}"
 
-        self.client = RESTfulClient(server_url)
+        self.client = RESTfulClient(server_url, api_key)
+        try:
+            self.async_client = AsyncRESTfulClient(server_url, api_key)
+        except RuntimeError:
+            self.async_client = None
 
     @property
     def _llm_type(self) -> str:
@@ -241,9 +244,47 @@ class ChatXinference(BaseChatModel):
 
         return ChatResult(generations=[chat_generation])
 
+    async def _agenerate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self.async_client is None:
+            raise ValueError("Client is not initialized!")
+
+        model = await self.async_client.get_model(self.model_uid)
+        generate_config: "LlamaCppGenerateConfig" = kwargs.get("generate_config", {})
+        generate_config = {**self.model_kwargs, **generate_config}
+
+        if stop:
+            generate_config["stop"] = stop
+
+        final_chunk = await self._achat_with_aggregation(
+            model=model,
+            messages=messages,
+            run_manager=run_manager,
+            verbose=self.verbose,
+            generate_config=generate_config,
+        )
+
+        result = AIMessage(
+            content=final_chunk.message.content,
+            additional_kwargs=final_chunk.message.additional_kwargs,
+            tool_calls=final_chunk.message.tool_calls,
+        )
+
+        chat_generation = ChatGeneration(
+            message=result,
+            generation_info=final_chunk.generation_info,
+        )
+
+        return ChatResult(generations=[chat_generation])
+
     def _chat_with_aggregation(
         self,
-        model: Union["RESTfulChatModelHandle"],
+        model: Union["ChatModelHandle"],
         messages: List[BaseMessage],
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         verbose: bool = False,
@@ -256,10 +297,61 @@ class ChatXinference(BaseChatModel):
             generate_config=generate_config,
         )
         if isinstance(response, dict):
-            response = [response]
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0])
+            if run_manager:
+                run_manager.on_llm_new_token(
+                    chunk.text,
+                    chunk=chunk,
+                    verbose=verbose,
+                )
+            return chunk
 
         final_chunk: Optional[ChatGenerationChunk] = None
         for stream_resp in response:
+            if stream_resp:
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                if final_chunk is None:
+                    final_chunk = chunk
+                else:
+                    final_chunk += chunk
+                if run_manager:
+                    run_manager.on_llm_new_token(
+                        chunk.text,
+                        chunk=chunk,
+                        verbose=verbose,
+                    )
+        if final_chunk is None:
+            raise ValueError("No data received from xinference stream.")
+
+        return final_chunk
+
+    async def _achat_with_aggregation(
+        self,
+        model: Union["AsyncChatModelHandle"],
+        messages: List[BaseMessage],
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        verbose: bool = False,
+        generate_config: Optional["LlamaCppGenerateConfig"] = None,
+    ) -> ChatGenerationChunk:
+        tools = self._choice_tools(tool_choice=self.tool_choice)
+        response = await model.chat(
+            messages=convert_to_openai_messages(messages),
+            tools=tools,
+            generate_config=generate_config,
+        )
+        if isinstance(response, dict):
+            response = response
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0])
+            if run_manager:
+                run_manager.on_llm_new_token(
+                    chunk.text,
+                    chunk=chunk,
+                    verbose=verbose,
+                )
+            return chunk
+
+        final_chunk: Optional[ChatGenerationChunk] = None
+        async for stream_resp in response:
             if stream_resp:
                 chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if final_chunk is None:
@@ -340,6 +432,42 @@ class ChatXinference(BaseChatModel):
         )
 
         for stream_resp in response:
+            if stream_resp:
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                if run_manager:
+                    run_manager.on_llm_new_token(
+                        chunk.text,
+                        verbose=self.verbose,
+                    )
+                yield chunk
+
+    async def _astream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        if self.client is None:
+            raise ValueError("Client is not initialized!")
+
+        model = await self.async_client.get_model(self.model_uid)
+
+        generate_config = kwargs.get("generate_config", {})
+        if "stream" not in generate_config or not generate_config.get("stream", False):
+            generate_config["stream"] = True
+        generate_config = {**self.model_kwargs, **generate_config}
+        if stop:
+            generate_config["stop"] = stop
+
+        tools = self._choice_tools(tool_choice=self.tool_choice)
+        response = await model.chat(
+            messages=convert_to_openai_messages(messages),
+            tools=tools,
+            generate_config=generate_config,
+        )
+
+        async for stream_resp in response:
             if stream_resp:
                 chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if run_manager:

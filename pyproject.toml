@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "langchain-xinference"
-version = "0.1.2.post1"
+version = "0.1.2"
 description = "An integration package connecting Xinference and LangChain"
 authors = []
 readme = "README.md"
