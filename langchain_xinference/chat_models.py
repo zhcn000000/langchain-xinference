@@ -1,4 +1,4 @@
-from copy import deepcopy
+from copy import copy
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -13,7 +13,10 @@ from typing import (
 )
 
 import requests
-from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -248,7 +251,7 @@ class ChatXinference(BaseChatModel):
         self,
         messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
         if self.async_client is None:
@@ -290,7 +293,7 @@ class ChatXinference(BaseChatModel):
         verbose: bool = False,
         generate_config: Optional["LlamaCppGenerateConfig"] = None,
     ) -> ChatGenerationChunk:
-        tools = self._choice_tools(tool_choice=self.tool_choice)
+        tools = self._choice_tools()
         response = model.chat(
             messages=convert_to_openai_messages(messages),
             tools=tools,
@@ -329,11 +332,11 @@ class ChatXinference(BaseChatModel):
         self,
         model: Union["AsyncChatModelHandle"],
         messages: List[BaseMessage],
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         verbose: bool = False,
         generate_config: Optional["LlamaCppGenerateConfig"] = None,
     ) -> ChatGenerationChunk:
-        tools = self._choice_tools(tool_choice=self.tool_choice)
+        tools = self._choice_tools()
         response = await model.chat(
             messages=convert_to_openai_messages(messages),
             tools=tools,
@@ -343,7 +346,7 @@ class ChatXinference(BaseChatModel):
             response = response
             chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0])
             if run_manager:
-                run_manager.on_llm_new_token(
+                await run_manager.on_llm_new_token(
                     chunk.text,
                     chunk=chunk,
                     verbose=verbose,
@@ -359,7 +362,7 @@ class ChatXinference(BaseChatModel):
                 else:
                     final_chunk += chunk
                 if run_manager:
-                    run_manager.on_llm_new_token(
+                    await run_manager.on_llm_new_token(
                         chunk.text,
                         chunk=chunk,
                         verbose=verbose,
@@ -424,7 +427,7 @@ class ChatXinference(BaseChatModel):
         if stop:
             generate_config["stop"] = stop
 
-        tools = self._choice_tools(tool_choice=self.tool_choice)
+        tools = self._choice_tools()
         response = model.chat(
             messages=convert_to_openai_messages(messages),
             tools=tools,
@@ -445,7 +448,7 @@ class ChatXinference(BaseChatModel):
         self,
         messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
         if self.client is None:
@@ -460,7 +463,7 @@ class ChatXinference(BaseChatModel):
         if stop:
             generate_config["stop"] = stop
 
-        tools = self._choice_tools(tool_choice=self.tool_choice)
+        tools = self._choice_tools()
         response = await model.chat(
             messages=convert_to_openai_messages(messages),
             tools=tools,
@@ -471,30 +474,38 @@ class ChatXinference(BaseChatModel):
             if stream_resp:
                 chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
                 if run_manager:
-                    run_manager.on_llm_new_token(
+                    await run_manager.on_llm_new_token(
                         chunk.text,
                         verbose=self.verbose,
                     )
                 yield chunk
 
-    def _choice_tools(self, tool_choice: Optional[Union[str]] = None):
+    def _choice_tools(self):
         """Select tools based on the tool_choice."""
-        if tool_choice is None:
+        if self.tools is None or len(self.tools) == 0:
+            return None
+        if self.tool_choice is None:
             return self.tools
-        if isinstance(tool_choice, str):
-            if tool_choice == "any":
+        if isinstance(self.tool_choice, str):
+            if self.tool_choice == "any":
                 return self.tools
-            if tool_choice == "none":
-                return None
-        elif isinstance(tool_choice, list):
-            if len(tool_choice) == 0:
+            elif self.tool_choice == "none":
                 return None
             else:
-                return [tool for tool in self.tools if tool.name in tool_choice]
-        elif tool_choice == Any:
-            return self.tools
-        else:
-            raise ValueError("tool_choice must be None, a string or a list of strings.")
+                return [
+                    tool
+                    for tool in self.tools
+                    if tool["type"] == "function" and tool["function"]["name"] == self.tool_choice
+                ]
+        elif isinstance(self.tool_choice, list):
+            if len(self.tool_choice) == 0:
+                return None
+            else:
+                return [
+                    tool
+                    for tool in self.tools
+                    if tool["type"] == "function" and tool["function"]["name"] in self.tool_choice
+                ] or None
 
     def _build_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         built_tool_calls = []
@@ -506,8 +517,11 @@ class ChatXinference(BaseChatModel):
             built_tool_calls.append(tc)
         return built_tool_calls
 
-    def _set_tools(self, tools, tool_choice):
-        self.tools = tools
+    def _set_tools(self, tools: List[Dict[str, Any]], tool_choice: Optional[Union[str]]) -> None:
+        if self.tools is None:
+            self.tools = tools
+        else:
+            self.tools = self.tools + tools
         self.tool_choice = tool_choice
 
     def bind_tools(
@@ -522,6 +536,6 @@ class ChatXinference(BaseChatModel):
         formatted_tools = []
         for tool in tools:
             formatted_tools.append(convert_to_openai_tool(tool))
-        model = deepcopy(self)
+        model = copy(self)
         model._set_tools(tool_choice=tool_choice, tools=formatted_tools)
         return model
