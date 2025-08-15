@@ -25,6 +25,7 @@ from langchain_core.messages import (
     BaseMessage,
     convert_to_openai_messages,
 )
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
@@ -276,6 +277,7 @@ class ChatXinference(BaseChatModel):
             content=final_chunk.message.content,
             additional_kwargs=final_chunk.message.additional_kwargs,
             tool_calls=final_chunk.message.tool_calls,
+            usage_metadata=final_chunk.message.usage_metadata,
         )
 
         chat_generation = ChatGeneration(
@@ -300,7 +302,7 @@ class ChatXinference(BaseChatModel):
             generate_config=generate_config,
         )
         if isinstance(response, dict):
-            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0])
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response["usage"])
             if run_manager:
                 run_manager.on_llm_new_token(
                     chunk.text,
@@ -312,7 +314,7 @@ class ChatXinference(BaseChatModel):
         final_chunk: Optional[ChatGenerationChunk] = None
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -344,7 +346,7 @@ class ChatXinference(BaseChatModel):
         )
         if isinstance(response, dict):
             response = response
-            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0])
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response["usage"])
             if run_manager:
                 await run_manager.on_llm_new_token(
                     chunk.text,
@@ -356,7 +358,7 @@ class ChatXinference(BaseChatModel):
         final_chunk: Optional[ChatGenerationChunk] = None
         async for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -375,12 +377,8 @@ class ChatXinference(BaseChatModel):
     def _chat_response_to_chat_generation_chunk(
         self,
         stream_response: Dict[str, Any],
+        usage: Optional[Dict[str, Any]] = None,
     ) -> ChatGenerationChunk:
-        if stream_response.get("finish_reason") in ["stop", "tool_calls", "length"]:
-            generation_info = stream_response
-        else:
-            generation_info = None
-
         if "message" in stream_response:
             message = stream_response["message"]
         elif "delta" in stream_response:
@@ -400,13 +398,32 @@ class ChatXinference(BaseChatModel):
                 content=message["content"],
                 additional_kwargs=additional_kwargs,
                 tool_call_chunks=built_tool_calls,
+                usage_metadata=UsageMetadata(
+                    input_tokens=usage["prompt_tokens"],
+                    output_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"],
+                )
+                if usage is not None
+                else None,
+            )
+        elif stream_response.get("finish_reason") in {"length", "stop"}:
+            chat_chunk = AIMessageChunk(
+                content=message["content"],
+                additional_kwargs=additional_kwargs,
+                usage_metadata=UsageMetadata(
+                    input_tokens=usage["prompt_tokens"],
+                    output_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"],
+                )
+                if usage is not None
+                else None,
             )
         else:
             chat_chunk = AIMessageChunk(
                 content=message["content"],
                 additional_kwargs=additional_kwargs,
             )
-        return ChatGenerationChunk(message=chat_chunk, generation_info=generation_info)
+        return ChatGenerationChunk(message=chat_chunk)
 
     def _stream(
         self,
@@ -436,7 +453,7 @@ class ChatXinference(BaseChatModel):
 
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
                 if run_manager:
                     run_manager.on_llm_new_token(
                         chunk.text,
@@ -472,7 +489,7 @@ class ChatXinference(BaseChatModel):
 
         async for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0])
+                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
                 if run_manager:
                     await run_manager.on_llm_new_token(
                         chunk.text,

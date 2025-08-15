@@ -4,11 +4,11 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "langchain-xinference"
-version = "0.1.3.post1"
+version = "0.1.3.post2"
 description = "An integration package connecting Xinference and LangChain"
 authors = []
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.10,<4.0"
 dependencies = [
     "langchain-core>=0.3.15,<0.4.0",
@@ -23,13 +23,9 @@ test = [
     "pytest-asyncio>=0.23.2",
     "pytest-socket>=0.7.0",
     "pytest-watcher>=0.3.4",
-    "langchain-tests>=0.3.5"
+    "langchain-tests>=0.3.5",
 ]
-lint = [
-    "ruff>=0.5",
-    "mypy>=1.10",
-    "codespell>=2.2.6"
-]
+lint = ["ruff>=0.5", "mypy>=1.10", "codespell>=2.2.6"]
 dev = ["ipython"]
 
 [tool.ruff]
