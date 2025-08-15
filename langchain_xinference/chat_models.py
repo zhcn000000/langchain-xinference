@@ -302,7 +302,7 @@ class ChatXinference(BaseChatModel):
             generate_config=generate_config,
         )
         if isinstance(response, dict):
-            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response["usage"])
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response.get("usage"))
             if run_manager:
                 run_manager.on_llm_new_token(
                     chunk.text,
@@ -314,7 +314,9 @@ class ChatXinference(BaseChatModel):
         final_chunk: Optional[ChatGenerationChunk] = None
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
+                chunk = self._chat_response_to_chat_generation_chunk(
+                    stream_resp["choices"][0], stream_resp.get("usage")
+                )
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -346,7 +348,7 @@ class ChatXinference(BaseChatModel):
         )
         if isinstance(response, dict):
             response = response
-            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response["usage"])
+            chunk = self._chat_response_to_chat_generation_chunk(response["choices"][0], response.get("usage"))
             if run_manager:
                 await run_manager.on_llm_new_token(
                     chunk.text,
@@ -358,7 +360,9 @@ class ChatXinference(BaseChatModel):
         final_chunk: Optional[ChatGenerationChunk] = None
         async for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
+                chunk = self._chat_response_to_chat_generation_chunk(
+                    stream_resp["choices"][0], stream_resp.get("usage")
+                )
                 if final_chunk is None:
                     final_chunk = chunk
                 else:
@@ -453,7 +457,9 @@ class ChatXinference(BaseChatModel):
 
         for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
+                chunk = self._chat_response_to_chat_generation_chunk(
+                    stream_resp["choices"][0], stream_resp.get("usage")
+                )
                 if run_manager:
                     run_manager.on_llm_new_token(
                         chunk.text,
@@ -489,7 +495,9 @@ class ChatXinference(BaseChatModel):
 
         async for stream_resp in response:
             if stream_resp:
-                chunk = self._chat_response_to_chat_generation_chunk(stream_resp["choices"][0], stream_resp["usage"])
+                chunk = self._chat_response_to_chat_generation_chunk(
+                    stream_resp["choices"][0], stream_resp.get("usage")
+                )
                 if run_manager:
                     await run_manager.on_llm_new_token(
                         chunk.text,
