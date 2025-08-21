@@ -23,6 +23,7 @@ from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
     BaseMessage,
+    ToolCallChunk,
     convert_to_openai_messages,
 )
 from langchain_core.messages.ai import UsageMetadata
@@ -33,7 +34,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 
 if TYPE_CHECKING:
     from xinference.client.handlers import AsyncChatModelHandle, ChatModelHandle
-    from xinference.model.llm.core import LlamaCppGenerateConfig
+    from xinference_client.types import PytorchGenerateConfig
 
 
 class ChatXinference(BaseChatModel):
@@ -221,7 +222,7 @@ class ChatXinference(BaseChatModel):
             raise ValueError("Client is not initialized!")
 
         model = self.client.get_model(self.model_uid)
-        generate_config: "LlamaCppGenerateConfig" = kwargs.get("generate_config", {})
+        generate_config: "PytorchGenerateConfig" = kwargs.get("generate_config", {})
         generate_config = {**self.model_kwargs, **generate_config}
 
         if stop:
@@ -236,9 +237,11 @@ class ChatXinference(BaseChatModel):
         )
 
         result = AIMessage(
+            name=final_chunk.message.name,
             content=final_chunk.message.content,
             additional_kwargs=final_chunk.message.additional_kwargs,
             tool_calls=final_chunk.message.tool_calls,
+            usage_metadata=final_chunk.message.usage_metadata,
         )
 
         chat_generation = ChatGeneration(
@@ -259,7 +262,7 @@ class ChatXinference(BaseChatModel):
             raise ValueError("Client is not initialized!")
 
         model = await self.async_client.get_model(self.model_uid)
-        generate_config: "LlamaCppGenerateConfig" = kwargs.get("generate_config", {})
+        generate_config: "PytorchGenerateConfig" = kwargs.get("generate_config", {})
         generate_config = {**self.model_kwargs, **generate_config}
 
         if stop:
@@ -274,6 +277,7 @@ class ChatXinference(BaseChatModel):
         )
 
         result = AIMessage(
+            name=final_chunk.message.name,
             content=final_chunk.message.content,
             additional_kwargs=final_chunk.message.additional_kwargs,
             tool_calls=final_chunk.message.tool_calls,
@@ -293,7 +297,7 @@ class ChatXinference(BaseChatModel):
         messages: List[BaseMessage],
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         verbose: bool = False,
-        generate_config: Optional["LlamaCppGenerateConfig"] = None,
+        generate_config: Optional["PytorchGenerateConfig"] = None,
     ) -> ChatGenerationChunk:
         tools = self._choice_tools()
         response = model.chat(
@@ -338,7 +342,7 @@ class ChatXinference(BaseChatModel):
         messages: List[BaseMessage],
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         verbose: bool = False,
-        generate_config: Optional["LlamaCppGenerateConfig"] = None,
+        generate_config: Optional["PytorchGenerateConfig"] = None,
     ) -> ChatGenerationChunk:
         tools = self._choice_tools()
         response = await model.chat(
@@ -391,42 +395,30 @@ class ChatXinference(BaseChatModel):
             raise ValueError("Received unsupported response format from xinference.")
         if message["content"] is None:
             message["content"] = ""
+        usage_metadata = (
+            UsageMetadata(
+                input_tokens=usage["prompt_tokens"],
+                output_tokens=usage["completion_tokens"],
+                total_tokens=usage["total_tokens"],
+            )
+            if usage is not None
+            else None
+        )
+
         additional_kwargs = {}
         if "reasoning_content" in message:
             additional_kwargs["reasoning_content"] = message["reasoning_content"]
-        if stream_response.get("finish_reason") == "tool_calls":
-            tool_calls = message["tool_calls"]
-            built_tool_calls = self._build_tool_calls(tool_calls)
-            additional_kwargs["tool_calls"] = tool_calls
-            chat_chunk = AIMessageChunk(
-                content=message["content"],
-                additional_kwargs=additional_kwargs,
-                tool_call_chunks=built_tool_calls,
-                usage_metadata=UsageMetadata(
-                    input_tokens=usage["prompt_tokens"],
-                    output_tokens=usage["completion_tokens"],
-                    total_tokens=usage["total_tokens"],
-                )
-                if usage is not None
-                else None,
-            )
-        elif stream_response.get("finish_reason") in {"length", "stop"}:
-            chat_chunk = AIMessageChunk(
-                content=message["content"],
-                additional_kwargs=additional_kwargs,
-                usage_metadata=UsageMetadata(
-                    input_tokens=usage["prompt_tokens"],
-                    output_tokens=usage["completion_tokens"],
-                    total_tokens=usage["total_tokens"],
-                )
-                if usage is not None
-                else None,
-            )
+        if "tool_calls" in message:
+            built_tool_calls = self._build_tool_calls(message["tool_calls"])
         else:
-            chat_chunk = AIMessageChunk(
-                content=message["content"],
-                additional_kwargs=additional_kwargs,
-            )
+            built_tool_calls = []
+        chat_chunk = AIMessageChunk(
+            name=self.model_uid,
+            content=message["content"],
+            additional_kwargs=additional_kwargs,
+            tool_call_chunks=built_tool_calls,
+            usage_metadata=usage_metadata,
+        )
         return ChatGenerationChunk(message=chat_chunk)
 
     def _stream(
@@ -532,13 +524,21 @@ class ChatXinference(BaseChatModel):
                     if tool["type"] == "function" and tool["function"]["name"] in self.tool_choice
                 ] or None
 
-    def _build_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _build_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[ToolCallChunk]:
         built_tool_calls = []
+        indexes = {}
+        index = 0
         for tool_call in tool_calls:
-            tc = dict()
-            tc["id"] = tool_call["id"]
-            tc["name"] = tool_call["function"]["name"]
-            tc["args"] = tool_call["function"]["arguments"]
+            if tool_call["id"] not in indexes:
+                indexes[tool_call["id"]] = index
+                index += 1
+            tc = ToolCallChunk(
+                index=indexes[tool_call["id"]],
+                id=tool_call["id"],
+                name=tool_call["function"]["name"],
+                args=tool_call["function"]["arguments"],
+            )
             built_tool_calls.append(tc)
         return built_tool_calls
 
